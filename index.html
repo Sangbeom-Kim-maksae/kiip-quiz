@@ -270,7 +270,7 @@ const SETTINGS_KEY = "teacher_setup_code";
 const CLASS_OPTIONS = ["초급1", "초급2", "중급1", "중급2"];
 /* 파일을 새로 배포할 때마다 이 값을 바꾸면, 예전 파일로 로그인해 있던 사람은
    새 파일을 열자마자 자동으로 로그아웃되고 처음 화면부터 다시 시작됨 */
-const APP_VERSION = "2026-08-28-03";
+const APP_VERSION = "2026-08-28-05";
 const APP_VERSION_KEY = "kiip_app_version";
 
 /* 벨트 레벨 메타 (KIIP 레벨 0~4 통과 시 다음 벨트로 승급) */
@@ -2874,6 +2874,7 @@ async function hashPassword(pw) {
 const state = {
   view: "landing",       // landing | s_register | s_login | s_login_pick | s_pending | s_home | quiz | reading | oral | leaderboard | t_login | t_signup | t_admin | t_pending | t_reset | s_reset_info
   loginCandidates: [],   // 이름+비밀번호가 같은 계정이 여러 개일 때(예: 같은 이름으로 중급1/중급2 각각 가입) 선택할 후보 목록
+  dupConfirmedName: null, // 가입 시 동명이인 경고를 이미 확인하고 진행하기로 한 이름 (같으면 재확인 없이 바로 등록)
   student: null,          // logged-in student row
   teacher: null,          // logged-in teacher row
   teachers: [],
@@ -3066,7 +3067,11 @@ function viewStudentRegister() {
     <form id="s-register-form">
       <div class="field">
         <label for="r-name">이름 (한글)</label>
-        <input type="text" id="r-name" placeholder="예: 홍길동" required pattern="[가-힣\\s]+" title="한글로 입력해주세요">
+        <input type="text" id="r-name" placeholder="예: 홍길동" required pattern="[가-힣0-9\\s]+" title="한글(숫자 포함 가능)로 입력해주세요">
+      </div>
+      <div class="field">
+        <label for="r-phone">전화번호</label>
+        <input type="tel" id="r-phone" placeholder="예: 010-1234-5678" required>
       </div>
       <div class="row3">
         <div class="field">
@@ -3601,13 +3606,14 @@ async function loadAdminStudents() {
     body.innerHTML = `
     <div class="table-wrap">
     <table>
-      <thead><tr><th>이름</th><th>반</th><th>학기</th><th>상태</th><th>마지막 퀴즈</th><th>현재 점수</th><th>관리</th></tr></thead>
+      <thead><tr><th>이름</th><th>전화번호</th><th>반</th><th>학기</th><th>상태</th><th>마지막 퀴즈</th><th>현재 점수</th><th>관리</th></tr></thead>
       <tbody>
         ${rows.map(st => {
           const qs = quizMap[st.id];
           return `
         <tr>
           <td>${escapeHtml(st.name)}</td>
+          <td>${escapeHtml(st.phone || "-")}</td>
           <td>${escapeHtml(st.class_name)}</td>
           <td>${st.year}-${st.semester}</td>
           <td><span class="badge badge-${st.status}">${st.status === "approved" ? "승인" : st.status === "rejected" ? "거절" : "대기"}</span></td>
@@ -3678,13 +3684,14 @@ function renderSuperAdminBody() {
     body.innerHTML = `
     <div class="table-wrap">
     <table>
-      <thead><tr><th>이름</th><th>담당 교사</th><th>반</th><th>학기</th><th>상태</th><th>마지막 퀴즈</th><th>현재 점수</th><th>관리</th></tr></thead>
+      <thead><tr><th>이름</th><th>전화번호</th><th>담당 교사</th><th>반</th><th>학기</th><th>상태</th><th>마지막 퀴즈</th><th>현재 점수</th><th>관리</th></tr></thead>
       <tbody>
         ${rows.map(st => {
           const qs = state.superAdmin.quizSummary[st.id];
           return `
         <tr>
           <td>${escapeHtml(st.name)}</td>
+          <td>${escapeHtml(st.phone || "-")}</td>
           <td>${escapeHtml(st.teachers ? st.teachers.name : "-")}</td>
           <td>${escapeHtml(st.class_name)}</td>
           <td>${st.year}-${st.semester}</td>
@@ -3917,23 +3924,43 @@ function pickStudentAccount(idx) {
 
 async function onStudentRegister() {
   const name = document.getElementById("r-name").value.trim();
+  const phone = document.getElementById("r-phone").value.trim();
   const year = Number(document.getElementById("r-year").value);
   const semester = Number(document.getElementById("r-sem").value);
   const class_name = document.getElementById("r-class").value;
   const teacher_id = document.getElementById("r-teacher").value;
   const pw = document.getElementById("r-pw").value;
-  if (!/^[가-힣\s]+$/.test(name)) { setState({ error: "이름은 한글로 입력해주세요." }); return; }
+  if (!/^[가-힣0-9\s]+$/.test(name)) { setState({ error: "이름은 한글(숫자 포함 가능)로 입력해주세요." }); return; }
+  if (!/^01[0-9]-?\d{3,4}-?\d{4}$/.test(phone)) { setState({ error: "전화번호를 정확히 입력해주세요. (예: 010-1234-5678)" }); return; }
   if (!teacher_id) { setState({ error: "담당 선생님을 선택해주세요." }); return; }
+
+  // 동명이인 확인: 같은 이름으로 이미 등록된 학생이 있으면 한 번 경고하고,
+  // 사용자가 내용을 확인한 뒤 다시 제출하면(dupConfirmedName === name) 그대로 진행한다.
+  if (state.dupConfirmedName !== name) {
+    setState({ loading: true, error: "" });
+    try {
+      const existing = await sb(`students?name=eq.${encodeURIComponent(name)}&select=id`);
+      if (existing && existing.length) {
+        setState({
+          loading: false,
+          dupConfirmedName: name,
+          error: `이미 '${name}'(으)로 등록된 학생이 있어요. 다른 사람이 맞다면 전화번호로 구분되니 걱정하지 않아도 돼요. 계속 진행하려면 '가입 신청하기'를 한 번 더 눌러주세요.`
+        });
+        return;
+      }
+    } catch (e) { /* 중복 확인 실패해도 가입 자체는 막지 않음 */ }
+  }
+
   setState({ loading: true, error: "" });
   try {
     const password_hash = await hashPassword(pw);
     const rows = await sb("students", {
       method: "POST",
-      body: { name, year, semester, class_name, teacher_id, password_hash, status: "pending", belt_level: 1 }
+      body: { name, phone, year, semester, class_name, teacher_id, password_hash, status: "pending", belt_level: 1 }
     });
     const student = rows[0];
     saveSession(student.id);
-    setState({ loading: false, student, view: "s_pending" });
+    setState({ loading: false, dupConfirmedName: null, student, view: "s_pending" });
   } catch (e) {
     setState({ loading: false, error: e.message });
   }
