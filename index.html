@@ -270,7 +270,7 @@ const SETTINGS_KEY = "teacher_setup_code";
 const CLASS_OPTIONS = ["초급1", "초급2", "중급1", "중급2"];
 /* 파일을 새로 배포할 때마다 이 값을 바꾸면, 예전 파일로 로그인해 있던 사람은
    새 파일을 열자마자 자동으로 로그아웃되고 처음 화면부터 다시 시작됨 */
-const APP_VERSION = "2026-08-28-02";
+const APP_VERSION = "2026-08-28-03";
 const APP_VERSION_KEY = "kiip_app_version";
 
 /* 벨트 레벨 메타 (KIIP 레벨 0~4 통과 시 다음 벨트로 승급) */
@@ -4491,6 +4491,27 @@ function setupCaptureProtection() {
   renderWatermark();
   setInterval(renderWatermark, 60000);
 }
+
+/* ============================================================
+   bfcache(뒤로가기/닫기 캐시) 대응
+   카카오톡 인앱 브라우저 등 일부 모바일 브라우저는 페이지를 "닫아도"
+   완전히 종료하지 않고 메모리에 상태를 그대로 보관했다가(bfcache)
+   다시 열 때 복원한다. 이 경우 init()이 재실행되지 않아
+   sessionStorage를 지워도 로그인 화면이 그대로 남아있는 것처럼 보인다.
+   ============================================================ */
+// (1) unload 리스너를 등록하면 대부분의 브라우저가 해당 페이지를
+//     bfcache 대상에서 제외하고, 다시 열 때 완전히 새로 로드한다.
+window.addEventListener("unload", function () {});
+
+// (2) 그래도 bfcache로 복원되는 경우를 대비한 안전장치:
+//     persisted(bfcache 복원)로 페이지가 다시 보이면 세션을 지우고
+//     완전히 새로고침해서 처음부터 다시 시작하게 한다.
+window.addEventListener("pageshow", function (event) {
+  if (event.persisted) {
+    try { sessionStorage.removeItem("kiip_student_id"); } catch (e) {}
+    location.reload();
+  }
+});
 
 /* ============================================================
    시작
