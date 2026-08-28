@@ -270,7 +270,7 @@ const SETTINGS_KEY = "teacher_setup_code";
 const CLASS_OPTIONS = ["초급1", "초급2", "중급1", "중급2"];
 /* 파일을 새로 배포할 때마다 이 값을 바꾸면, 예전 파일로 로그인해 있던 사람은
    새 파일을 열자마자 자동으로 로그아웃되고 처음 화면부터 다시 시작됨 */
-const APP_VERSION = "2026-08-28-01";
+const APP_VERSION = "2026-08-28-02";
 const APP_VERSION_KEY = "kiip_app_version";
 
 /* 벨트 레벨 메타 (KIIP 레벨 0~4 통과 시 다음 벨트로 승급) */
@@ -347,7 +347,6 @@ const QUIZ_POOL = {
       { level: "medium", icon: "🌫️", q: "도시는 공기가 ( ) 사람들의 건강에 안 좋다.", opts: ["맑아서", "탁해서", "한적해서", "깨끗해서"], a: 1, explain: "공기가 깨끗하지 않고 흐린 것은 '탁하다'예요." },
       { level: "medium", icon: "😪", q: "어제 야근해서 그런지 ( ) 졸리고 피곤해요.", opts: ["새로", "전혀", "자꾸", "혹시"], a: 2, explain: "'자꾸'는 같은 일이 반복되는 것을 나타내요. 계속 졸리고 피곤하다는 뜻이에요." },
       { level: "medium", icon: "🏆", q: "다섯 번째 시험 끝에 ( ) 합격했다.", opts: ["마침내", "함부로", "아마도", "반드시"], a: 0, explain: "오랜 시간 끝에 드디어 일이 이루어졌을 때 '마침내'를 써요." },
-      { level: "medium", icon: "😷", q: "대인 관계의 기본은 서로 ( )을/를 잘 지키는 것이다.", opts: ["편견", "공감", "예의", "의도"], a: 2, explain: "사람 사이에서 존중하는 태도로 지켜야 하는 것은 '예의'예요." },
       { level: "medium", icon: "💧", q: "아내는 지난달부터 직장 생활과 육아를 ( ) 있어서 정신없이 바빠요.", opts: ["정리하고", "병행하고", "참여하고", "신청하고"], a: 1, explain: "두 가지 일을 동시에 하는 것은 '병행하다'예요." },
       { level: "medium", icon: "🤯", q: "나는 ( ) 성격이어서 누가 시키지 않은 일도 스스로 하는 편이다.", opts: ["느긋한", "내성적인", "적극적인", "덜렁거리는"], a: 2, explain: "시키지 않아도 스스로 나서서 하는 성격은 '적극적인' 성격이에요." },
       { level: "medium", icon: "💼", q: "나는 집에서 회사까지 ( ) 안 멀어서 늘 걸어 다닌다.", opts: ["특히", "겨우", "아마", "별로"], a: 3, explain: "'별로 안 멀다'는 그다지 멀지 않다는 뜻이에요." },
@@ -445,7 +444,6 @@ const QUIZ_POOL = {
       { level: "medium", icon: "🍅", q: "( ) 재배 덕분에 계절과 상관없이 여러 가지 과일을 먹을 수 있다.", opts: ["산업 단지", "문화 시설", "비닐하우스", "빌딩 숲"], a: 2, explain: "비닐로 만든 온실을 '비닐하우스'라고 해요." },
       { level: "medium", icon: "🏭", q: "우리 고향은 산업화가 되면서 옛날 모습은 사라지고 여러 공장과 함께 ( )이/가 들어서기 시작했다.", opts: ["산업 단지", "문화 시설", "비닐하우스", "빌딩 숲"], a: 0, explain: "공장들이 모여 있는 곳을 '산업 단지'라고 해요." },
       { level: "medium", icon: "🎭", q: "내가 살고 있는 곳은 주변에 ( )이/가 없어서 영화관에 가는 것이 불편하다.", opts: ["산업 단지", "문화 시설", "비닐하우스", "빌딩 숲"], a: 1, explain: "영화관, 도서관처럼 문화생활을 할 수 있는 시설을 '문화 시설'이라고 해요." },
-      { level: "medium", icon: "🌫️", q: "도시는 공기가 ( ) 사람들의 건강에 안 좋다.", opts: ["탁해서", "맑아서"], a: 0, explain: "공기가 깨끗하지 않은 것을 '탁하다'라고 해요." },
       { level: "medium", icon: "📹", q: "요즘은 놀이터에 CCTV가 설치되어 있어서 아이들의 ( )을/를 지킬 수 있다.", opts: ["흥미를", "안전을"], a: 1, explain: "위험하지 않게 지키는 것을 '안전을 지키다'라고 해요." },
       { level: "medium", icon: "🌾", q: "우리 고향은 날씨가 따뜻해서 여러 가지 채소 ( ) 지을 수 있다.", opts: ["농사를", "건물을"], a: 0, explain: "밭이나 논에서 작물을 키우는 것을 '농사를 짓다'라고 해요." },
       { level: "medium", icon: "🚶", q: "이 길은 사람들이 많이 지나가지 않는 ( ) 길이다.", opts: ["한적한", "복잡한"], a: 0, explain: "조용하고 사람이 적은 것을 '한적하다'라고 해요." },
@@ -2900,10 +2898,11 @@ function setState(patch) {
   render();
 }
 
-/* Persist a lightweight session on this device */
-function saveSession(studentId) { try { localStorage.setItem("kiip_student_id", studentId); } catch (e) {} }
-function clearSession() { try { localStorage.removeItem("kiip_student_id"); } catch (e) {} }
-function getSavedSession() { try { return localStorage.getItem("kiip_student_id"); } catch (e) { return null; } }
+/* Persist a lightweight session for THIS TAB ONLY (sessionStorage) —
+   페이지/탭을 닫으면 자동으로 사라져서 재접속 시 로그아웃 상태가 되도록 함 */
+function saveSession(studentId) { try { sessionStorage.setItem("kiip_student_id", studentId); } catch (e) {} }
+function clearSession() { try { sessionStorage.removeItem("kiip_student_id"); } catch (e) {} }
+function getSavedSession() { try { return sessionStorage.getItem("kiip_student_id"); } catch (e) { return null; } }
 
 /* ============================================================
    초기화
