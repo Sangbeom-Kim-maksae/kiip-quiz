@@ -1,0 +1,19 @@
+name: Keep Supabase Alive
+ 
+on:
+  schedule:
+    # 매주 수요일, 토요일 12:00 (한국시간, UTC+9 기준 03:00 UTC)
+    - cron: '0 3 * * 3,6'
+  workflow_dispatch: {}   # 필요하면 수동으로도 실행 가능 (Actions 탭에서 Run workflow 버튼)
+ 
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase DB
+        run: |
+          curl -s -o /dev/null -w "HTTP 상태 코드: %{http_code}\n" \
+            "https://ygrdrahwjqfvfzgwxijq.supabase.co/rest/v1/app_settings?select=key&limit=1" \
+            -H "apikey: sb_publishable_1EPYP7prxw0Md52_CLOVZw_u70RjkCf" \
+            -H "Authorization: Bearer sb_publishable_1EPYP7prxw0Md52_CLOVZw_u70RjkCf"
+ 
