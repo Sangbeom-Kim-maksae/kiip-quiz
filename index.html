@@ -85,7 +85,7 @@
   p.lead{color:var(--text-dim); font-size:14px; margin:0 0 22px;}
   .field{margin-bottom:16px;}
   label{display:block; font-size:13px; color:var(--text-dim); margin-bottom:6px; font-weight:500;}
-  input[type=text], input[type=password], input[type=number], select, textarea{
+  input[type=text], input[type=password], input[type=number], input[type=tel], select, textarea{
     width:100%; background:var(--bg-alt); border:1px solid var(--border); color:var(--text);
     padding:11px 12px; border-radius:var(--radius-sm); font-size:15px; font-family:var(--font-body);
   }
@@ -270,7 +270,7 @@ const SETTINGS_KEY = "teacher_setup_code";
 const CLASS_OPTIONS = ["초급1", "초급2", "중급1", "중급2"];
 /* 파일을 새로 배포할 때마다 이 값을 바꾸면, 예전 파일로 로그인해 있던 사람은
    새 파일을 열자마자 자동으로 로그아웃되고 처음 화면부터 다시 시작됨 */
-const APP_VERSION = "2026-08-28-05";
+const APP_VERSION = "2026-08-28-06";
 const APP_VERSION_KEY = "kiip_app_version";
 
 /* 벨트 레벨 메타 (KIIP 레벨 0~4 통과 시 다음 벨트로 승급) */
