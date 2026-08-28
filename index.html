@@ -278,7 +278,7 @@ const CLASS_OPTIONS = [
 ];
 /* 파일을 새로 배포할 때마다 이 값을 바꾸면, 예전 파일로 로그인해 있던 사람은
    새 파일을 열자마자 자동으로 로그아웃되고 처음 화면부터 다시 시작됨 */
-const APP_VERSION = "2026-08-28-08";
+const APP_VERSION = "2026-08-28-09";
 const APP_VERSION_KEY = "kiip_app_version";
 
 /* 벨트 레벨 메타 (KIIP 레벨 0~4 통과 시 다음 벨트로 승급) */
@@ -2861,7 +2861,7 @@ async function sb(path, opts = {}) {
     "Content-Type": "application/json",
     ...(opts.headers || {})
   };
-  if ((opts.method === "POST" || opts.method === "PATCH") && !headers["Prefer"]) {
+  if ((opts.method === "POST" || opts.method === "PATCH" || opts.method === "DELETE") && !headers["Prefer"]) {
     headers["Prefer"] = "return=representation";
   }
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -3787,7 +3787,11 @@ async function saResetPassword(id, name) {
 async function saDeleteStudent(id, name) {
   if (!confirm(`${name} 학생을 삭제할까요? 이 작업은 되돌릴 수 없어요.`)) return;
   try {
-    await sb(`students?id=eq.${id}`, { method: "DELETE" });
+    const deleted = await sb(`students?id=eq.${id}`, { method: "DELETE" });
+    if (!deleted || deleted.length === 0) {
+      alert(`삭제가 반영되지 않았어요. Supabase에 students 테이블의 DELETE 권한(RLS 정책)이 없을 수 있어요. 관리자에게 문의해주세요.`);
+      return;
+    }
     state.superAdmin.loaded = false;
     await loadSuperAdmin();
     loadAdminStudents();
@@ -3824,7 +3828,11 @@ async function saDeleteTeacher(id, name) {
   if (cnt > 0) { alert(`${name} 선생님에게는 아직 ${cnt}명의 학생이 있어요. 먼저 학생들을 삭제하거나 다른 교사로 옮긴 뒤 삭제해주세요.`); return; }
   if (!confirm(`${name} 선생님 계정을 삭제할까요? 이 작업은 되돌릴 수 없어요.`)) return;
   try {
-    await sb(`teachers?id=eq.${id}`, { method: "DELETE" });
+    const deleted = await sb(`teachers?id=eq.${id}`, { method: "DELETE" });
+    if (!deleted || deleted.length === 0) {
+      alert(`삭제가 반영되지 않았어요. Supabase에 teachers 테이블의 DELETE 권한(RLS 정책)이 없을 수 있어요. 관리자에게 문의해주세요.`);
+      return;
+    }
     state.superAdmin.loaded = false;
     await loadSuperAdmin();
   } catch (e) { alert("삭제 중 오류: " + e.message); }
