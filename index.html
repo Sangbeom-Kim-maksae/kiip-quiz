@@ -267,10 +267,18 @@ const SUPABASE_URL = "https://ygrdrahwjqfvfzgwxijq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_1EPYP7prxw0Md52_CLOVZw_u70RjkCf";
 const TEACHER_SETUP_CODE_DEFAULT = "jrem2026"; // Supabase에 설정값이 없을 때만 쓰이는 기본값
 const SETTINGS_KEY = "teacher_setup_code";
-const CLASS_OPTIONS = ["초급1", "초급2", "중급1", "중급2"];
+/* 반(class) 목록 — value는 DB에 저장되는 실제 값(기존 학생 데이터와 호환을 위해 유지),
+   label은 화면에 보여지는 이름. 콘텐츠가 준비되는 대로 아래 주석을 해제해서 추가하면 됨. */
+const CLASS_OPTIONS = [
+  // { value: "초급1", label: "초급1 (1단계)" },
+  // { value: "초급2", label: "초급2 (2단계)" },
+  { value: "중급1", label: "중급1 (3단계)" },
+  { value: "중급2", label: "중급2 (4단계)" },
+  // { value: "고급1", label: "고급1 (5단계)" },
+];
 /* 파일을 새로 배포할 때마다 이 값을 바꾸면, 예전 파일로 로그인해 있던 사람은
    새 파일을 열자마자 자동으로 로그아웃되고 처음 화면부터 다시 시작됨 */
-const APP_VERSION = "2026-08-28-06";
+const APP_VERSION = "2026-08-28-08";
 const APP_VERSION_KEY = "kiip_app_version";
 
 /* 벨트 레벨 메타 (KIIP 레벨 0~4 통과 시 다음 벨트로 승급) */
@@ -287,6 +295,13 @@ const MAX_BELT = 5;
    예시(placeholder) 콘텐츠 — 실제 KIIP 교재 반영 전까지 사용
    ============================================================ */
 const CLASS_LEVEL_KEY = { "초급1": "elementary1", "초급2": "elementary2", "중급1": "intermediate1", "중급2": "intermediate2" };
+
+/* DB에 저장된 class_name 값(예: "중급1")을 화면 표시용 라벨(예: "중급1 (3단계)")로 변환.
+   CLASS_OPTIONS에 없는 값(과거 데이터 등)은 원래 값을 그대로 보여줌 */
+function classLabel(value) {
+  const found = CLASS_OPTIONS.find(c => c.value === value);
+  return found ? found.label : (value || "");
+}
 
 /* ============================================================
    3단계(중급1) 필기 문제 풀 — 1과~16과 내용을 섞어서 출제
@@ -2882,7 +2897,7 @@ const state = {
   quiz: null,             // { className, item, selectedIdx, correct, answeredCount, correctCount, sessionScore }
   reading: null,          // { belt, passage, karaoke state, recognized, score }
   oral: null,              // { belt, set, idx, results, recording, transcript, lastScore }
-  leaderboard: { tab: "combined", year: null, semester: null },
+  leaderboard: { tab: "quiz", year: null, semester: null },
   superAdmin: { tab: "students", loading: false, loaded: false, students: [], teachers: [], quizSummary: {} },
   teacherSetupCode: TEACHER_SETUP_CODE_DEFAULT,
   loading: false,
@@ -2987,7 +3002,7 @@ function render() {
 function topbarHTML() {
   let right = "";
   if (state.student) {
-    right = `<div class="user-chip"><b>${escapeHtml(state.student.name)}</b>님 · ${escapeHtml(state.student.class_name)} &nbsp; <button class="link-btn" data-act="logout-student">로그아웃</button></div>`;
+    right = `<div class="user-chip"><b>${escapeHtml(state.student.name)}</b>님 · ${escapeHtml(classLabel(state.student.class_name))} &nbsp; <button class="link-btn" data-act="logout-student">로그아웃</button></div>`;
   } else if (state.teacher) {
     right = `<div class="user-chip"><b>${escapeHtml(state.teacher.name)}</b> 선생님 &nbsp; <button class="link-btn" data-act="logout-teacher">로그아웃</button></div>`;
   } else if (state.view !== "landing") {
@@ -3089,7 +3104,7 @@ function viewStudentRegister() {
         <div class="field">
           <label for="r-class">반</label>
           <select id="r-class" required>
-            ${CLASS_OPTIONS.map(c => `<option value="${c}">${c}</option>`).join("")}
+            ${CLASS_OPTIONS.map(c => `<option value="${c.value}">${c.label}</option>`).join("")}
           </select>
         </div>
       </div>
@@ -3118,7 +3133,7 @@ function viewStudentLoginPick() {
     <div class="grid-cards" style="grid-template-columns:1fr;">
       ${list.map((s, i) => `
         <button class="action-card" data-act="pick-student-account" data-idx="${i}">
-          <div class="title">${escapeHtml(s.class_name)}</div>
+          <div class="title">${escapeHtml(classLabel(s.class_name))}</div>
           <div class="desc">${s.year}년 ${s.semester}학기 · ${s.status === "approved" ? "승인됨" : s.status === "rejected" ? "거절됨" : "승인 대기중"}</div>
         </button>
       `).join("")}
@@ -3171,7 +3186,7 @@ function viewStudentHome() {
   return `
   <div class="card">
     <h2>${escapeHtml(s.name)}님의 도장</h2>
-    <p class="lead">${s.class_name} · ${s.year}년 ${s.semester}학기</p>
+    <p class="lead">${classLabel(s.class_name)} · ${s.year}년 ${s.semester}학기</p>
     <div id="my-score-body">
       <div class="empty"><span class="spinner"></span></div>
     </div>
@@ -3180,8 +3195,9 @@ function viewStudentHome() {
     <button class="action-card" data-act="start-quiz">
       <span class="icon">📝</span>
       <div class="title">퀴즈 게임</div>
-      <div class="desc">${s.class_name} 어휘·문법·쓰기·읽기·문화 한 문제씩 풀기</div>
+      <div class="desc">${classLabel(s.class_name)} 어휘·문법·쓰기·읽기·문화 한 문제씩 풀기</div>
     </button>
+    <!-- 읽기 게임·구술 게임은 준비되는 대로 아래 주석을 해제해서 다시 켤 수 있음
     <button class="action-card" data-act="go-reading-pick">
       <span class="icon">🎤</span>
       <div class="title">읽기 게임</div>
@@ -3192,6 +3208,7 @@ function viewStudentHome() {
       <div class="title">구술 게임</div>
       <div class="desc">지문 · 그림 · 대화를 보고 질문에 말로 답하기</div>
     </button>
+    -->
     <button class="action-card" data-act="go-leaderboard">
       <span class="icon">🏆</span>
       <div class="title">순위표</div>
@@ -3413,12 +3430,16 @@ function viewLeaderboard() {
   return `
   <div class="card">
     <h2>순위표</h2>
-    <p class="lead">${s ? `${s.class_name} · ${s.year}년 ${s.semester}학기` : ""}</p>
+    <p class="lead">${s ? `${classLabel(s.class_name)} · ${s.year}년 ${s.semester}학기` : ""}</p>
     <div class="tabs">
+      <!-- 읽기·구술 게임이 준비되면 아래 탭들의 주석을 해제
       <button class="tab ${state.leaderboard.tab === "combined" ? "active" : ""}" data-act="lb-tab" data-tab="combined">통합</button>
       <button class="tab ${state.leaderboard.tab === "reading" ? "active" : ""}" data-act="lb-tab" data-tab="reading">읽기</button>
+      -->
       <button class="tab ${state.leaderboard.tab === "quiz" ? "active" : ""}" data-act="lb-tab" data-tab="quiz">퀴즈</button>
+      <!--
       <button class="tab ${state.leaderboard.tab === "oral" ? "active" : ""}" data-act="lb-tab" data-tab="oral">구술</button>
+      -->
     </div>
     <div id="lb-body">${state.loading ? '<div class="empty"><span class="spinner"></span></div>' : ""}</div>
     <div style="margin-top:16px;"><button class="link-btn" data-act="go-s-home">← 도장으로 돌아가기</button></div>
@@ -3614,7 +3635,7 @@ async function loadAdminStudents() {
         <tr>
           <td>${escapeHtml(st.name)}</td>
           <td>${escapeHtml(st.phone || "-")}</td>
-          <td>${escapeHtml(st.class_name)}</td>
+          <td>${escapeHtml(classLabel(st.class_name))}</td>
           <td>${st.year}-${st.semester}</td>
           <td><span class="badge badge-${st.status}">${st.status === "approved" ? "승인" : st.status === "rejected" ? "거절" : "대기"}</span></td>
           <td>${qs ? formatLastActive(qs.lastAt) : "-"}</td>
@@ -3693,7 +3714,7 @@ function renderSuperAdminBody() {
           <td>${escapeHtml(st.name)}</td>
           <td>${escapeHtml(st.phone || "-")}</td>
           <td>${escapeHtml(st.teachers ? st.teachers.name : "-")}</td>
-          <td>${escapeHtml(st.class_name)}</td>
+          <td>${escapeHtml(classLabel(st.class_name))}</td>
           <td>${st.year}-${st.semester}</td>
           <td><span class="badge badge-${st.status}">${st.status === "approved" ? "승인" : st.status === "rejected" ? "거절" : "대기"}</span></td>
           <td>${qs ? formatLastActive(qs.lastAt) : "-"}</td>
@@ -4101,7 +4122,7 @@ async function startQuiz() {
   const seenBefore = sameClass && prevQuiz.seen ? prevQuiz.seen : await loadSeenQuestions(s.id, levelKey);
   const result = pickRandomQuestion(levelKey, seenBefore, avoidKey);
   if (!result) {
-    alert(`${s.class_name} 문제가 아직 준비되지 않았어요. 선생님께 문의해주세요.`);
+    alert(`${classLabel(s.class_name)} 문제가 아직 준비되지 않았어요. 선생님께 문의해주세요.`);
     return;
   }
   const item = result.item;
