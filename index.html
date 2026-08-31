@@ -278,7 +278,7 @@ const CLASS_OPTIONS = [
 ];
 /* 파일을 새로 배포할 때마다 이 값을 바꾸면, 예전 파일로 로그인해 있던 사람은
    새 파일을 열자마자 자동으로 로그아웃되고 처음 화면부터 다시 시작됨 */
-const APP_VERSION = "2026-08-31-17";
+const APP_VERSION = "2026-08-31-18";
 const APP_VERSION_KEY = "kiip_app_version";
 
 /* 벨트 레벨 메타 (KIIP 레벨 0~4 통과 시 다음 벨트로 승급) */
@@ -2666,6 +2666,23 @@ const LEVEL_MIX = {
   ]
 };
 
+/* 오답노트에서 저장된 qkey 하나만 가지고 원래 문제(item)를 다시 찾아온다.
+   pickRandomQuestion과 동일한 접두사 규칙(중급2 혼합 시 "intermediate1__"/"intermediate2__")을 따라야
+   같은 qkey로 정확히 같은 문제를 되찾을 수 있다. 풀에서 문제가 삭제/변경된 경우 null을 반환한다. */
+function findQuizItemByQkey(levelKey, qkey) {
+  const mixSources = LEVEL_MIX[levelKey] || [{ level: levelKey, weight: 1 }];
+  for (const src of mixSources) {
+    const prefix = mixSources.length > 1 ? `${src.level}__` : "";
+    if (!qkey.startsWith(prefix)) continue;
+    const plainKey = qkey.slice(prefix.length);
+    const found = flattenPool(src.level).find(it => it.qkey === plainKey);
+    if (found) {
+      return { ...found, qkey, sourceLevel: src.level, points: levelKey === "intermediate2" ? 2.5 : found.points };
+    }
+  }
+  return null;
+}
+
 /* seen: 이미 보여준 문제의 qkey 목록. 안 본 문제 중에서만 뽑고,
    전부 다 봤으면(한 바퀴 완료) 목록을 비우고 새로 시작(cycleReset=true)한다.
    avoidKey: 사이클이 막 끝난 시점에 바로 직전 문제가 다시 뽑히는 것만 한 번 더 방지
@@ -2743,6 +2760,31 @@ async function resetSeenQuestions(studentId, levelKey) {
   try {
     await sb(`seen_questions?student_id=eq.${studentId}&level_key=eq.${levelKey}`, { method: "DELETE" });
   } catch (e) { /* 실패해도 클라이언트 쪽에서는 이미 새 사이클로 진행 중 */ }
+}
+
+/* ============================================================
+   오답노트 (wrong_questions 테이블)
+   틀린 문제의 qkey를 학생·단계별로 저장해 두고, 오답노트에서 다시 풀어서
+   맞히면 그 기록을 삭제한다. ============================================================ */
+async function loadWrongQuestions(studentId, levelKey) {
+  try {
+    const rows = await sb(`wrong_questions?student_id=eq.${studentId}&level_key=eq.${levelKey}&select=qkey`);
+    return (rows || []).map(r => r.qkey);
+  } catch (e) { return []; }
+}
+async function recordWrongQuestion(studentId, levelKey, qkey) {
+  try {
+    await sb(`wrong_questions?on_conflict=student_id,level_key,qkey`, {
+      method: "POST",
+      headers: { "Prefer": "resolution=merge-duplicates,return=minimal" },
+      body: { student_id: studentId, level_key: levelKey, qkey, last_wrong_at: new Date().toISOString() }
+    });
+  } catch (e) { /* 저장 실패해도 화면은 그대로 진행 */ }
+}
+async function removeWrongQuestion(studentId, levelKey, qkey) {
+  try {
+    await sb(`wrong_questions?student_id=eq.${studentId}&level_key=eq.${levelKey}&qkey=eq.${encodeURIComponent(qkey)}`, { method: "DELETE" });
+  } catch (e) { /* 실패해도 다음 학습에 다시 시도됨 */ }
 }
 
 /* 선택지 순서를 매번 무작위로 섞어서 정답 위치가 항상 랜덤이 되도록 함 */
@@ -2895,6 +2937,7 @@ const state = {
   teachers: [],
   firstTeacherId: null,
   quiz: null,             // { className, item, selectedIdx, correct, answeredCount, correctCount, sessionScore }
+  wrongNote: null,        // { className, levelKey, queue: [qkey,...], item, pickedIdx, selectedIdx, correct }
   reading: null,          // { belt, passage, karaoke state, recognized, score }
   oral: null,              // { belt, set, idx, results, recording, transcript, lastScore }
   leaderboard: { tab: "quiz", year: null, semester: null },
@@ -2975,6 +3018,9 @@ function render() {
     case "s_home": html = viewStudentHome(); break;
     case "quiz": html = viewQuiz(); break;
     case "quiz_check": html = viewQuizCheck(); break;
+    case "wrong_quiz": html = viewWrongQuiz(); break;
+    case "wrong_quiz_check": html = viewWrongQuizCheck(); break;
+    case "wrong_note_empty": html = viewWrongNoteEmpty(); break;
     case "reading_pick": html = viewReadingPick(); break;
     case "reading": html = viewReading(); break;
     case "oral_pick": html = viewOralPick(); break;
@@ -2992,7 +3038,7 @@ function render() {
   bindEvents();
   renderWatermark();
   if (state.view === "leaderboard") loadLeaderboard();
-  if (state.view === "s_home") loadMyScore();
+  if (state.view === "s_home") { loadMyScore(); loadWrongNoteCount(); }
   if (state.view === "t_admin") {
     loadAdminStudents();
     if (state.teacher && state.teacher.id === state.firstTeacherId && !state.superAdmin.loaded) loadSuperAdmin();
@@ -3197,6 +3243,11 @@ function viewStudentHome() {
       <div class="title">퀴즈 게임</div>
       <div class="desc">${classLabel(s.class_name)} 어휘·문법·쓰기·읽기·문화 한 문제씩 풀기</div>
     </button>
+    <button class="action-card" data-act="start-wrong-note">
+      <span class="icon">📌</span>
+      <div class="title">오답노트</div>
+      <div class="desc" id="wrong-note-desc">틀린 문제를 다시 풀어보세요</div>
+    </button>
     <!-- 읽기 게임·구술 게임은 준비되는 대로 아래 주석을 해제해서 다시 켤 수 있음
     <button class="action-card" data-act="go-reading-pick">
       <span class="icon">🎤</span>
@@ -3236,6 +3287,17 @@ async function loadMyScore() {
     const body = document.getElementById("my-score-body");
     if (body) body.innerHTML = `<div class="msg msg-error">점수를 불러오지 못했어요.</div>`;
   }
+}
+
+async function loadWrongNoteCount() {
+  const s = state.student;
+  if (!s) return;
+  const levelKey = CLASS_LEVEL_KEY[s.class_name];
+  try {
+    const qkeys = await loadWrongQuestions(s.id, levelKey);
+    const el = document.getElementById("wrong-note-desc");
+    if (el) el.textContent = qkeys.length > 0 ? `틀린 문제 ${qkeys.length}개 다시 풀어보기` : "틀린 문제를 다시 풀어보세요";
+  } catch (e) { /* 무시 — 버튼은 기본 문구로 남음 */ }
 }
 
 /* ============================================================
@@ -3288,6 +3350,67 @@ function viewQuizCheck() {
     </div>
   </div>
   <div class="copyright-banner">⚠️ 이 문제는 법무부 사회통합프로그램(KIIP) 교재를 기반으로 제작되었습니다. 무단 캡처·저장·배포를 금지하며, 적발 시 책임을 물을 수 있습니다.</div>`;
+}
+
+/* ============================================================
+   화면: 오답노트 (틀린 문제만 모아서 다시 풀기, 맞히면 목록에서 사라짐)
+   ============================================================ */
+function viewWrongQuiz() {
+  const wn = state.wrongNote;
+  const item = wn.item;
+  const typeLabel = { vocab: "어휘", grammar: "문법", writing: "쓰기", reading: "읽기", culture: "문화" }[item.type] || item.type;
+  const picked = wn.pickedIdx !== null && wn.pickedIdx !== undefined;
+  return `
+  <div class="card">
+    <div class="quiz-progress">📌 오답노트 · ${wn.className} · ${typeLabel} · 남은 문제 ${wn.queue.length}개</div>
+    ${item.img ? `<div style="text-align:center; margin-bottom:10px;"><img src="${item.img}" alt="문제 이미지" style="max-width:100%; max-height:260px; border-radius:10px; border:1px solid #eee;" loading="lazy"></div>` : (item.icon ? `<div style="font-size:44px; text-align:center; margin-bottom:10px;">${item.icon}</div>` : "")}
+    <div class="quiz-q">${renderQuizText(item.q)}</div>
+    <div id="quiz-opts">
+      ${item.opts.map((opt, i) => `<button class="quiz-opt ${i === wn.pickedIdx ? "selected" : ""}" data-act="pick-wrong-opt" data-idx="${i}"><b>${i + 1}.</b> ${renderQuizText(opt)}</button>`).join("")}
+    </div>
+    <button class="btn" data-act="check-wrong-quiz" ${picked ? "" : "disabled"} style="margin-top:6px;">정답 확인</button>
+    <div style="margin-top:20px;"><button class="link-btn" data-act="go-s-home">← 그만하고 도장으로</button></div>
+  </div>
+  <div class="copyright-banner">⚠️ 이 문제는 법무부 사회통합프로그램(KIIP) 교재를 기반으로 제작되었습니다. 무단 캡처·저장·배포를 금지하며, 적발 시 책임을 물을 수 있습니다.</div>`;
+}
+
+function viewWrongQuizCheck() {
+  const wn = state.wrongNote;
+  const item = wn.item;
+  const typeLabel = { vocab: "어휘", grammar: "문법", writing: "쓰기", reading: "읽기", culture: "문화" }[item.type] || item.type;
+  return `
+  <div class="card">
+    <div class="quiz-progress">📌 오답노트 · ${wn.className} · ${typeLabel}</div>
+    ${item.img ? `<div style="text-align:center; margin-bottom:10px;"><img src="${item.img}" alt="문제 이미지" style="max-width:100%; max-height:260px; border-radius:10px; border:1px solid #eee;" loading="lazy"></div>` : (item.icon ? `<div style="font-size:44px; text-align:center; margin-bottom:10px;">${item.icon}</div>` : "")}
+    <div class="quiz-q">${renderQuizText(item.q)}</div>
+    <div id="quiz-opts">
+      ${item.opts.map((opt, i) => {
+        let cls = "quiz-opt";
+        if (i === item.a) cls += " correct";
+        else if (i === wn.selectedIdx) cls += " wrong";
+        return `<button class="${cls}" disabled><b>${i + 1}.</b> ${renderQuizText(opt)}</button>`;
+      }).join("")}
+    </div>
+    <div class="msg ${wn.correct ? "msg-ok" : "msg-error"}" style="margin-top:14px; text-align:center; font-size:16px;">
+      ${wn.correct ? `⭕ 정답이에요! 오답노트에서 사라졌어요.` : `❌ 아직이에요. 정답은 <b>${item.a + 1}. ${renderQuizText(item.opts[item.a])}</b> 이에요. 오답노트에 계속 남아있어요.`}
+    </div>
+    ${item.explain ? `<div class="msg msg-info" style="margin-top:10px;"><b>해설</b> ${escapeHtml(item.explain)}</div>` : ""}
+    <div class="score-label" style="margin-top:10px;">남은 오답 문제 ${wn.queue.length}개</div>
+    <div class="btn-row" style="margin-top:14px;">
+      <button class="btn" data-act="wrong-quiz-next">다음 문제 →</button>
+      <button class="btn btn-outline" data-act="go-s-home">그만하기</button>
+    </div>
+  </div>
+  <div class="copyright-banner">⚠️ 이 문제는 법무부 사회통합프로그램(KIIP) 교재를 기반으로 제작되었습니다. 무단 캡처·저장·배포를 금지하며, 적발 시 책임을 물을 수 있습니다.</div>`;
+}
+
+function viewWrongNoteEmpty() {
+  return `
+  <div class="card card-narrow" style="text-align:center;">
+    <h2>🎉 오답노트가 비어있어요!</h2>
+    <p class="lead">지금까지 틀린 문제가 없어요. 퀴즈를 풀다가 틀리면 여기에 자동으로 쌓여요.</p>
+    <button class="btn" data-act="go-s-home">도장으로 돌아가기</button>
+  </div>`;
 }
 
 /* ============================================================
@@ -3883,6 +4006,10 @@ function bindEvents() {
         case "pick-quiz-opt": pickQuizOpt(Number(el.dataset.idx)); break;
         case "check-quiz": checkQuiz(); break;
         case "quiz-next": quizNext(); break;
+        case "start-wrong-note": startWrongNote(); break;
+        case "pick-wrong-opt": pickWrongOpt(Number(el.dataset.idx)); break;
+        case "check-wrong-quiz": checkWrongQuiz(); break;
+        case "wrong-quiz-next": wrongQuizNext(); break;
         case "start-reading": startReading(el.dataset.pid); break;
         case "play-karaoke": playKaraoke(); break;
         case "toggle-mic": toggleMic(); break;
@@ -4172,6 +4299,10 @@ async function checkQuiz() {
       body: { student_id: s.id, game_type: "quiz", unit_key: `${item.type}`, score: correct ? item.points : 0, total: item.points }
     });
   } catch (e) { /* 저장 실패해도 화면은 그대로 진행 */ }
+  // 오답노트 갱신: 틀리면 기록하고, (혹시 예전에 틀렸다가 이번에) 맞히면 기록을 지운다.
+  const levelKey = CLASS_LEVEL_KEY[s.class_name];
+  if (correct) removeWrongQuestion(s.id, levelKey, item.qkey);
+  else recordWrongQuestion(s.id, levelKey, item.qkey);
 }
 
 function quizNext() {
@@ -4184,6 +4315,58 @@ function shuffle(arr) {
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
+}
+
+/* ============================================================
+   오답노트 퀴즈 로직
+   ============================================================ */
+async function startWrongNote() {
+  const s = state.student;
+  const levelKey = CLASS_LEVEL_KEY[s.class_name];
+  const qkeys = await loadWrongQuestions(s.id, levelKey);
+  if (qkeys.length === 0) { setState({ view: "wrong_note_empty" }); return; }
+  state.wrongNote = { className: s.class_name, levelKey, queue: shuffle(qkeys) };
+  pickNextWrongQuestion();
+}
+
+/* 큐의 맨 앞 qkey로 문제를 찾아 화면에 낸다. 풀에서 사라진 문제(qkey 불일치)는
+   건너뛰고 DB 기록도 정리한다. 큐가 비면 '오답노트 비었음' 화면으로 전환한다. */
+function pickNextWrongQuestion() {
+  const wn = state.wrongNote;
+  const s = state.student;
+  if (!wn || wn.queue.length === 0) { setState({ view: "wrong_note_empty" }); return; }
+  const qkey = wn.queue[0];
+  const item = findQuizItemByQkey(wn.levelKey, qkey);
+  if (!item) {
+    wn.queue = wn.queue.slice(1);
+    removeWrongQuestion(s.id, wn.levelKey, qkey);
+    pickNextWrongQuestion();
+    return;
+  }
+  setState({ view: "wrong_quiz", wrongNote: { ...wn, item: shuffleQuestionOptions(item), pickedIdx: null, selectedIdx: null, correct: null } });
+}
+
+function pickWrongOpt(idx) {
+  setState({ wrongNote: { ...state.wrongNote, pickedIdx: idx } });
+}
+
+async function checkWrongQuiz() {
+  const wn = state.wrongNote;
+  const s = state.student;
+  const item = wn.item;
+  if (wn.pickedIdx === null || wn.pickedIdx === undefined) return;
+  const selectedIdx = wn.pickedIdx;
+  const correct = selectedIdx === item.a;
+  const newQueue = correct
+    ? wn.queue.filter(k => k !== item.qkey)          // 맞혔으면 큐에서 완전히 제거
+    : [...wn.queue.slice(1), wn.queue[0]];           // 틀렸으면 뒤로 보내서 계속 순환
+  setState({ view: "wrong_quiz_check", wrongNote: { ...wn, selectedIdx, correct, queue: newQueue } });
+  if (correct) removeWrongQuestion(s.id, wn.levelKey, item.qkey);
+  else recordWrongQuestion(s.id, wn.levelKey, item.qkey);
+}
+
+function wrongQuizNext() {
+  pickNextWrongQuestion();
 }
 
 /* ============================================================
