@@ -278,7 +278,7 @@ const CLASS_OPTIONS = [
 ];
 /* 파일을 새로 배포할 때마다 이 값을 바꾸면, 예전 파일로 로그인해 있던 사람은
    새 파일을 열자마자 자동으로 로그아웃되고 처음 화면부터 다시 시작됨 */
-const APP_VERSION = "2026-08-31-25";
+const APP_VERSION = "2026-09-07-26";
 const APP_VERSION_KEY = "kiip_app_version";
 
 /* 벨트 레벨 메타 (KIIP 레벨 0~4 통과 시 다음 벨트로 승급) */
@@ -3340,7 +3340,7 @@ function viewQuizCheck() {
       }).join("")}
     </div>
     <div class="msg ${q.correct ? "msg-ok" : "msg-error"}" style="margin-top:14px; text-align:center; font-size:16px;">
-      ${q.correct ? `⭕ 정답이에요! +${item.points}점` : `❌ 오답이에요. 정답은 <b>${item.a + 1}. ${renderQuizText(item.opts[item.a])}</b> 이에요.`}
+      ${q.correct ? `⭕ 정답이에요! +${item.points}점` : `❌ 오답이에요. -${item.points}점. 정답은 <b>${item.a + 1}. ${renderQuizText(item.opts[item.a])}</b> 이에요.`}
     </div>
     ${item.explain ? `<div class="msg msg-info" style="margin-top:10px;"><b>해설</b> ${escapeHtml(item.explain)}</div>` : ""}
     <div class="score-label" style="margin-top:10px;">이번 세션 ${q.answeredCount}문제 풀이 · ${q.correctCount}개 정답 · 획득 ${Math.round(q.sessionScore * 10) / 10}점</div>
@@ -3392,7 +3392,7 @@ function viewWrongQuizCheck() {
       }).join("")}
     </div>
     <div class="msg ${wn.correct ? "msg-ok" : "msg-error"}" style="margin-top:14px; text-align:center; font-size:16px;">
-      ${wn.correct ? `⭕ 정답이에요! 오답노트에서 사라졌어요.` : `❌ 아직이에요. 정답은 <b>${item.a + 1}. ${renderQuizText(item.opts[item.a])}</b> 이에요. 오답노트에 계속 남아있어요.`}
+      ${wn.correct ? `⭕ 정답이에요! +${Math.round((item.points - 0.5) * 10) / 10}점 · 오답노트에서 사라졌어요.` : `❌ 아직이에요. -${item.points}점. 정답은 <b>${item.a + 1}. ${renderQuizText(item.opts[item.a])}</b> 이에요. 오답노트에 계속 남아있어요.`}
     </div>
     ${item.explain ? `<div class="msg msg-info" style="margin-top:10px;"><b>해설</b> ${escapeHtml(item.explain)}</div>` : ""}
     <div class="score-label" style="margin-top:10px;">남은 오답 문제 ${wn.queue.length}개</div>
@@ -4289,14 +4289,15 @@ async function checkQuiz() {
     correct,
     answeredCount: q.answeredCount + 1,
     correctCount: q.correctCount + (correct ? 1 : 0),
-    sessionScore: q.sessionScore + (correct ? item.points : 0)
+    sessionScore: q.sessionScore + (correct ? item.points : -item.points)
   };
   setState({ view: "quiz_check", quiz: updated });
   // 문제 하나를 풀 때마다 즉시 저장 (계속 누적됨)
+  // 맞으면 +배점, 틀리면 -배점 (오답 감점제)
   try {
     await sb("attempts", {
       method: "POST",
-      body: { student_id: s.id, game_type: "quiz", unit_key: `${item.type}`, score: correct ? item.points : 0, total: item.points }
+      body: { student_id: s.id, game_type: "quiz", unit_key: `${item.type}`, score: correct ? item.points : -item.points, total: item.points }
     });
   } catch (e) { /* 저장 실패해도 화면은 그대로 진행 */ }
   // 오답노트 갱신: 틀리면 기록하고, (혹시 예전에 틀렸다가 이번에) 맞히면 기록을 지운다.
@@ -4363,6 +4364,14 @@ async function checkWrongQuiz() {
   setState({ view: "wrong_quiz_check", wrongNote: { ...wn, selectedIdx, correct, queue: newQueue } });
   if (correct) removeWrongQuestion(s.id, wn.levelKey, item.qkey);
   else recordWrongQuestion(s.id, wn.levelKey, item.qkey);
+  // 오답노트 재도전 점수 저장: 맞으면 (배점-0.5), 틀리면 -배점.
+  // game_type을 "quiz"로 저장해야 누적 점수·순위표에 함께 반영된다.
+  try {
+    await sb("attempts", {
+      method: "POST",
+      body: { student_id: s.id, game_type: "quiz", unit_key: `wrong_${item.type}`, score: correct ? (item.points - 0.5) : -item.points, total: item.points }
+    });
+  } catch (e) { /* 저장 실패해도 화면은 그대로 진행 */ }
 }
 
 function wrongQuizNext() {
