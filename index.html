@@ -278,7 +278,7 @@ const CLASS_OPTIONS = [
 ];
 /* 파일을 새로 배포할 때마다 이 값을 바꾸면, 예전 파일로 로그인해 있던 사람은
    새 파일을 열자마자 자동으로 로그아웃되고 처음 화면부터 다시 시작됨 */
-const APP_VERSION = "2026-09-11-32";
+const APP_VERSION = "2026-09-11-33";
 const APP_VERSION_KEY = "kiip_app_version";
 
 /* 벨트 레벨 메타 (KIIP 레벨 0~4 통과 시 다음 벨트로 승급) */
@@ -4427,7 +4427,7 @@ async function loadLeaderboard() {
   const s = state.student;
   if (!s) return;
   try {
-    const students = await sb(`students?class_name=eq.${encodeURIComponent(s.class_name)}&year=eq.${s.year}&semester=eq.${s.semester}&status=eq.approved&select=id,name`);
+    const students = await sb(`students?class_name=eq.${encodeURIComponent(s.class_name)}&year=eq.${s.year}&semester=eq.${s.semester}&teacher_id=eq.${s.teacher_id}&status=eq.approved&select=id,name`);
     const ids = students.map(st => st.id);
     if (ids.length === 0) { document.getElementById("lb-body").innerHTML = `<div class="empty">아직 데이터가 없어요.</div>`; return; }
     const attempts = await sb(`attempts?student_id=in.(${ids.join(",")})&select=student_id,game_type,score,total`);
@@ -4622,6 +4622,7 @@ async function loadAdminStudents() {
               ${st.status !== "approved" ? `<button class="btn btn-sm" data-act="admin-approve" data-id="${st.id}">승인</button>` : ""}
               ${st.status !== "rejected" ? `<button class="btn btn-sm btn-outline" data-act="admin-reject" data-id="${st.id}">거절</button>` : ""}
               <button class="btn btn-sm btn-outline" data-act="admin-reset-pw" data-id="${st.id}" data-name="${escapeHtml(st.name)}">PW 재설정</button>
+              <button class="btn btn-sm btn-outline" data-act="admin-change-semester" data-id="${st.id}" data-name="${escapeHtml(st.name)}" data-year="${st.year}" data-semester="${st.semester}">학기 변경</button>
             </div>
           </td>
         </tr>`;
@@ -4875,6 +4876,7 @@ function bindEvents() {
         case "admin-approve": adminSetStatus(el.dataset.id, "approved"); break;
         case "admin-reject": adminSetStatus(el.dataset.id, "rejected"); break;
         case "admin-reset-pw": adminResetPassword(el.dataset.id, el.dataset.name); break;
+        case "admin-change-semester": adminChangeSemester(el.dataset.id, el.dataset.name, el.dataset.year, el.dataset.semester); break;
         case "sa-tab": state.superAdmin.tab = el.dataset.tab; setState({}); renderSuperAdminBody(); break;
         case "sa-refresh": state.superAdmin.loaded = false; loadSuperAdmin(); break;
         case "sa-approve": saSetStatus(el.dataset.id, "approved"); break;
@@ -5096,6 +5098,24 @@ async function adminResetPassword(id, name) {
     const password_hash = await hashPassword(pw);
     await sb(`students?id=eq.${id}`, { method: "PATCH", body: { password_hash } });
     alert("비밀번호가 재설정됐어요. 학생에게 새 비밀번호를 알려주세요.");
+  } catch (e) { alert("처리 중 오류: " + e.message); }
+}
+
+async function adminChangeSemester(id, name, curYear, curSemester) {
+  // 학기가 바뀌었는데도 이전 학기 값으로 남아있는 학생을 현재 학기로 옮길 때 사용
+  // (순위표는 나와 연도·학기가 정확히 같은 학생만 모아서 보여주므로, 값이 다르면 순위표에 나타나지 않음)
+  const yearInput = prompt(`${name} 학생의 연도를 입력하세요 (현재: ${curYear}년):`, curYear);
+  if (yearInput === null) return;
+  const year = Number(yearInput);
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) { alert("연도를 올바르게 입력해주세요. (예: 2026)"); return; }
+  const semInput = prompt(`${name} 학생의 학기를 입력하세요 (1, 2, 3 중 하나, 현재: ${curSemester}학기):`, curSemester);
+  if (semInput === null) return;
+  const semester = Number(semInput);
+  if (![1, 2, 3].includes(semester)) { alert("학기는 1, 2, 3 중 하나여야 해요."); return; }
+  try {
+    await sb(`students?id=eq.${id}`, { method: "PATCH", body: { year, semester } });
+    alert(`${name} 학생을 ${year}년 ${semester}학기로 옮겼어요.`);
+    loadAdminStudents();
   } catch (e) { alert("처리 중 오류: " + e.message); }
 }
 
