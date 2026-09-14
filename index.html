@@ -278,7 +278,7 @@ const CLASS_OPTIONS = [
 ];
 /* 파일을 새로 배포할 때마다 이 값을 바꾸면, 예전 파일로 로그인해 있던 사람은
    새 파일을 열자마자 자동으로 로그아웃되고 처음 화면부터 다시 시작됨 */
-const APP_VERSION = "2026-09-14-42";
+const APP_VERSION = "2026-09-14-43";
 const APP_VERSION_KEY = "kiip_app_version";
 
 /* 벨트 레벨 메타 (KIIP 레벨 0~4 통과 시 다음 벨트로 승급) */
@@ -4962,6 +4962,7 @@ async function sb(path, opts = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     method: opts.method || "GET",
     headers,
+    cache: "no-store",
     body: opts.body ? JSON.stringify(opts.body) : undefined
   });
   if (!res.ok) {
