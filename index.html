@@ -278,7 +278,7 @@ const CLASS_OPTIONS = [
 ];
 /* 파일을 새로 배포할 때마다 이 값을 바꾸면, 예전 파일로 로그인해 있던 사람은
    새 파일을 열자마자 자동으로 로그아웃되고 처음 화면부터 다시 시작됨 */
-const APP_VERSION = "2026-09-14-43";
+const APP_VERSION = "2026-09-14-45";
 const APP_VERSION_KEY = "kiip_app_version";
 
 /* 벨트 레벨 메타 (KIIP 레벨 0~4 통과 시 다음 벨트로 승급) */
@@ -4979,6 +4979,22 @@ async function hashPassword(pw) {
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+/* Supabase(PostgREST)는 한 번의 조회당 기본적으로 최대 1,000개 행만 돌려준다.
+   attempts처럼 행 수가 많이 쌓이는 테이블은 이 한도에 걸려 일부 기록이 조용히 잘릴 수 있으므로,
+   Range 헤더로 페이지를 나눠서 끝까지 전부 가져온다. */
+async function sbAll(path, pageSize = 1000) {
+  let all = [];
+  let offset = 0;
+  while (true) {
+    const rows = await sb(path, { headers: { "Range-Unit": "items", "Range": `${offset}-${offset + pageSize - 1}` } });
+    if (!rows || !rows.length) break;
+    all = all.concat(rows);
+    if (rows.length < pageSize) break;
+    offset += pageSize;
+  }
+  return all;
+}
+
 /* ============================================================
    상태 관리
    ============================================================ */
@@ -5331,7 +5347,7 @@ async function loadMyScore() {
   const s = state.student;
   if (!s) return;
   try {
-    const attempts = await sb(`attempts?student_id=eq.${s.id}&game_type=eq.quiz&select=score,total`);
+    const attempts = await sbAll(`attempts?student_id=eq.${s.id}&game_type=eq.quiz&select=score,total`);
     const count = attempts.length;
     const totalScore = Math.round(attempts.reduce((sum, a) => sum + a.score, 0) * 10) / 10;
     const totalPossible = Math.round(attempts.reduce((sum, a) => sum + a.total, 0) * 10) / 10;
@@ -5635,7 +5651,7 @@ async function loadLeaderboard() {
     const students = await sb(`students?class_name=eq.${encodeURIComponent(s.class_name)}&year=eq.${s.year}&semester=eq.${s.semester}&teacher_id=eq.${s.teacher_id}&status=eq.approved&select=id,name`);
     const ids = students.map(st => st.id);
     if (ids.length === 0) { document.getElementById("lb-body").innerHTML = `<div class="empty">아직 데이터가 없어요.</div>`; return; }
-    const attempts = await sb(`attempts?student_id=in.(${ids.join(",")})&select=student_id,game_type,score,total`);
+    const attempts = await sbAll(`attempts?student_id=in.(${ids.join(",")})&select=student_id,game_type,score,total`);
     const totals = {};
     ids.forEach(id => totals[id] = { reading: 0, quiz: 0, oral: 0 });
     attempts.forEach(a => {
@@ -5670,7 +5686,7 @@ async function loadLeaderboard() {
    ============================================================ */
 async function loadQuizSummary(ids) {
   if (!ids || !ids.length) return {};
-  const attempts = await sb(`attempts?student_id=in.(${ids.join(",")})&game_type=eq.quiz&select=student_id,score,created_at`);
+  const attempts = await sbAll(`attempts?student_id=in.(${ids.join(",")})&game_type=eq.quiz&select=student_id,score,created_at`);
   const map = {};
   (attempts || []).forEach(a => {
     if (!map[a.student_id]) map[a.student_id] = { score: 0, lastAt: null, count: 0 };
@@ -5809,16 +5825,24 @@ async function loadAdminStudents() {
     if (!rows.length) { body.innerHTML = `<div class="empty">아직 신청한 학생이 없어요.</div>`; return; }
     let quizMap = {};
     try { quizMap = await loadQuizSummary(rows.map(st => st.id)); } catch (e) { /* 요약 실패해도 학생 목록은 보여줌 */ }
+    const dupCounts = {};
+    rows.forEach(st => {
+      const key = `${st.name}|${st.class_name}|${st.year}|${st.semester}`;
+      dupCounts[key] = (dupCounts[key] || 0) + 1;
+    });
+    const dupCount = rows.filter(st => dupCounts[`${st.name}|${st.class_name}|${st.year}|${st.semester}`] > 1).length;
     body.innerHTML = `
+    ${dupCount > 0 ? `<div class="msg msg-error">⚠️ 같은 이름·같은 반으로 중복 가입된 것으로 보이는 계정이 <b>${dupCount}개</b> 있어요. 아래 표에서 노란색으로 표시된 줄을 확인해주세요.</div>` : ""}
     <div class="table-wrap">
     <table>
       <thead><tr><th>이름</th><th>전화번호</th><th>반</th><th>학기</th><th>상태</th><th>마지막 퀴즈</th><th>현재 점수</th><th>관리</th></tr></thead>
       <tbody>
         ${rows.map(st => {
           const qs = quizMap[st.id];
+          const isDup = dupCounts[`${st.name}|${st.class_name}|${st.year}|${st.semester}`] > 1;
           return `
-        <tr>
-          <td>${escapeHtml(st.name)}</td>
+        <tr${isDup ? ` style="background:rgba(232,179,74,0.15);"` : ""}>
+          <td>${isDup ? "⚠️ " : ""}${escapeHtml(st.name)}</td>
           <td>${escapeHtml(st.phone || "-")}</td>
           <td>${escapeHtml(classLabel(st.class_name))}</td>
           <td>${st.year}-${st.semester}</td>
@@ -5888,16 +5912,26 @@ function renderSuperAdminBody() {
   if (state.superAdmin.tab === "students") {
     const rows = state.superAdmin.students;
     if (!rows.length) { body.innerHTML = `<div class="empty">등록된 학생이 없어요.</div>`; return; }
+    // 같은 이름+같은 반(단계·연도·학기)으로 등록된 계정이 2개 이상이면 진짜 중복일 가능성이 높으므로 표시해 준다.
+    // (같은 이름이라도 단계가 다르면 중급1/중급2 두 단계에 정상적으로 가입한 것일 수 있으므로 중복으로 보지 않음)
+    const dupCounts = {};
+    rows.forEach(st => {
+      const key = `${st.name}|${st.class_name}|${st.year}|${st.semester}`;
+      dupCounts[key] = (dupCounts[key] || 0) + 1;
+    });
+    const dupCount = rows.filter(st => dupCounts[`${st.name}|${st.class_name}|${st.year}|${st.semester}`] > 1).length;
     body.innerHTML = `
+    ${dupCount > 0 ? `<div class="msg msg-error">⚠️ 같은 이름·같은 반으로 중복 가입된 것으로 보이는 계정이 <b>${dupCount}개</b> 있어요. 아래 표에서 노란색으로 표시된 줄을 확인해주세요.</div>` : ""}
     <div class="table-wrap">
     <table>
       <thead><tr><th>이름</th><th>전화번호</th><th>담당 교사</th><th>반</th><th>학기</th><th>상태</th><th>마지막 퀴즈</th><th>현재 점수</th><th>관리</th></tr></thead>
       <tbody>
         ${rows.map(st => {
           const qs = state.superAdmin.quizSummary[st.id];
+          const isDup = dupCounts[`${st.name}|${st.class_name}|${st.year}|${st.semester}`] > 1;
           return `
-        <tr>
-          <td>${escapeHtml(st.name)}</td>
+        <tr${isDup ? ` style="background:rgba(232,179,74,0.15);"` : ""}>
+          <td>${isDup ? "⚠️ " : ""}${escapeHtml(st.name)}</td>
           <td>${escapeHtml(st.phone || "-")}</td>
           <td>${escapeHtml(st.teachers ? st.teachers.name : "-")}</td>
           <td>${escapeHtml(classLabel(st.class_name))}</td>
