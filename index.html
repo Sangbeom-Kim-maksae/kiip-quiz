@@ -278,7 +278,7 @@ const CLASS_OPTIONS = [
 ];
 /* 파일을 새로 배포할 때마다 이 값을 바꾸면, 예전 파일로 로그인해 있던 사람은
    새 파일을 열자마자 자동으로 로그아웃되고 처음 화면부터 다시 시작됨 */
-const APP_VERSION = "2026-09-14-45";
+const APP_VERSION = "2026-09-14-46";
 const APP_VERSION_KEY = "kiip_app_version";
 
 /* 벨트 레벨 메타 (KIIP 레벨 0~4 통과 시 다음 벨트로 승급) */
@@ -5705,6 +5705,7 @@ function formatLastActive(dateStr) {
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return "-";
   const now = new Date();
+  if (d > now) return "방금 전"; // 서버 시간 기록이 미래로 잘못 찍힌 경우에 대한 방어 코드
   const diffDays = Math.floor((now - d) / 86400000);
   const hh = String(d.getHours()).padStart(2, "0");
   const mi = String(d.getMinutes()).padStart(2, "0");
