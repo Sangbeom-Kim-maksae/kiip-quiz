@@ -278,7 +278,7 @@ const CLASS_OPTIONS = [
 ];
 /* 파일을 새로 배포할 때마다 이 값을 바꾸면, 예전 파일로 로그인해 있던 사람은
    새 파일을 열자마자 자동으로 로그아웃되고 처음 화면부터 다시 시작됨 */
-const APP_VERSION = "2026-09-14-41";
+const APP_VERSION = "2026-09-14-42";
 const APP_VERSION_KEY = "kiip_app_version";
 
 /* 벨트 레벨 메타 (KIIP 레벨 0~4 통과 시 다음 벨트로 승급) */
@@ -5755,8 +5755,11 @@ function viewTeacherAdmin() {
   const isSuper = state.teacher.id === state.firstTeacherId;
   return `
   <div class="card">
-    <h2>${escapeHtml(state.teacher.name)} 선생님의 반</h2>
-    <p class="lead">가입 신청을 승인하거나 학생 비밀번호를 재설정할 수 있어요.</p>
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+      <h2 style="margin:0;">${escapeHtml(state.teacher.name)} 선생님의 반</h2>
+      <button class="link-btn" data-act="admin-refresh">↻ 새로고침</button>
+    </div>
+    <p class="lead">가입 신청을 승인하거나 학생 비밀번호를 재설정할 수 있어요. (점수·최근 활동은 화면을 처음 열었을 때 기준이니, 최신 정보가 필요하면 새로고침해주세요.)</p>
     <div id="admin-body">${state.loading ? '<div class="empty"><span class="spinner"></span></div>' : ""}</div>
   </div>
   ${isSuper ? `
@@ -6084,6 +6087,7 @@ function bindEvents() {
         case "admin-edit-student": adminEditStudentInfo(el.dataset.id, el.dataset.name, el.dataset.year, el.dataset.semester, el.dataset.class); break;
         case "sa-edit-student": adminEditStudentInfo(el.dataset.id, el.dataset.name, el.dataset.year, el.dataset.semester, el.dataset.class); break;
         case "switch-level": switchStudentLevel(); break;
+        case "admin-refresh": loadAdminStudents(); break;
         case "sa-tab": state.superAdmin.tab = el.dataset.tab; setState({}); renderSuperAdminBody(); break;
         case "sa-refresh": state.superAdmin.loaded = false; loadSuperAdmin(); break;
         case "sa-approve": saSetStatus(el.dataset.id, "approved"); break;
