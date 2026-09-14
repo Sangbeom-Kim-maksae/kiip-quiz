@@ -278,7 +278,7 @@ const CLASS_OPTIONS = [
 ];
 /* 파일을 새로 배포할 때마다 이 값을 바꾸면, 예전 파일로 로그인해 있던 사람은
    새 파일을 열자마자 자동으로 로그아웃되고 처음 화면부터 다시 시작됨 */
-const APP_VERSION = "2026-09-13-40";
+const APP_VERSION = "2026-09-14-41";
 const APP_VERSION_KEY = "kiip_app_version";
 
 /* 벨트 레벨 메타 (KIIP 레벨 0~4 통과 시 다음 벨트로 승급) */
@@ -5101,7 +5101,7 @@ function render() {
 function topbarHTML() {
   let right = "";
   if (state.student) {
-    right = `<div class="user-chip"><b>${escapeHtml(state.student.name)}</b>님 · ${escapeHtml(classLabel(state.student.class_name))} &nbsp; <button class="link-btn" data-act="logout-student">로그아웃</button></div>`;
+    right = `<div class="user-chip"><b>${escapeHtml(state.student.name)}</b>님 · ${escapeHtml(classLabel(state.student.class_name))} &nbsp; <button class="link-btn" data-act="switch-level">다른 단계로 전환</button> &nbsp; <button class="link-btn" data-act="logout-student">로그아웃</button></div>`;
   } else if (state.teacher) {
     right = `<div class="user-chip"><b>${escapeHtml(state.teacher.name)}</b> 선생님 &nbsp; <button class="link-btn" data-act="logout-teacher">로그아웃</button></div>`;
   } else if (state.view !== "landing") {
@@ -5225,10 +5225,11 @@ function viewStudentRegister() {
 
 function viewStudentLoginPick() {
   const list = state.loginCandidates || [];
+  const midSessionSwitch = !!state.student; // 로그인 중 "다른 단계로 전환"으로 들어온 경우
   return `
   <div class="card card-narrow">
     <h2>계정 선택</h2>
-    <p class="lead">같은 이름·비밀번호로 등록된 계정이 여러 개 있어요. 로그인할 계정을 선택해주세요.</p>
+    <p class="lead">${midSessionSwitch ? "전환할 단계 계정을 선택해주세요." : "같은 이름·비밀번호로 등록된 계정이 여러 개 있어요. 로그인할 계정을 선택해주세요."}</p>
     <div class="grid-cards" style="grid-template-columns:1fr;">
       ${list.map((s, i) => `
         <button class="action-card" data-act="pick-student-account" data-idx="${i}">
@@ -5237,7 +5238,11 @@ function viewStudentLoginPick() {
         </button>
       `).join("")}
     </div>
-    <div style="margin-top:14px; text-align:center;"><button class="link-btn" data-act="go-s-login">다시 로그인하기</button></div>
+    <div style="margin-top:14px; text-align:center;">
+      ${midSessionSwitch
+        ? `<button class="link-btn" data-act="go-s-home">취소하고 돌아가기</button>`
+        : `<button class="link-btn" data-act="go-s-login">다시 로그인하기</button>`}
+    </div>
   </div>`;
 }
 
@@ -5821,7 +5826,7 @@ async function loadAdminStudents() {
               ${st.status !== "approved" ? `<button class="btn btn-sm" data-act="admin-approve" data-id="${st.id}">승인</button>` : ""}
               ${st.status !== "rejected" ? `<button class="btn btn-sm btn-outline" data-act="admin-reject" data-id="${st.id}">거절</button>` : ""}
               <button class="btn btn-sm btn-outline" data-act="admin-reset-pw" data-id="${st.id}" data-name="${escapeHtml(st.name)}">PW 재설정</button>
-              <button class="btn btn-sm btn-outline" data-act="admin-change-semester" data-id="${st.id}" data-name="${escapeHtml(st.name)}" data-year="${st.year}" data-semester="${st.semester}">학기 변경</button>
+              <button class="btn btn-sm btn-outline" data-act="admin-edit-student" data-id="${st.id}" data-name="${escapeHtml(st.name)}" data-year="${st.year}" data-semester="${st.semester}" data-class="${escapeHtml(st.class_name)}">정보 수정</button>
             </div>
           </td>
         </tr>`;
@@ -5901,6 +5906,7 @@ function renderSuperAdminBody() {
               ${st.status !== "approved" ? `<button class="btn btn-sm" data-act="sa-approve" data-id="${st.id}">승인</button>` : ""}
               ${st.status !== "rejected" ? `<button class="btn btn-sm btn-outline" data-act="sa-reject" data-id="${st.id}">거절</button>` : ""}
               <button class="btn btn-sm btn-outline" data-act="sa-reset-pw" data-id="${st.id}" data-name="${escapeHtml(st.name)}">PW 재설정</button>
+              <button class="btn btn-sm btn-outline" data-act="sa-edit-student" data-id="${st.id}" data-name="${escapeHtml(st.name)}" data-year="${st.year}" data-semester="${st.semester}" data-class="${escapeHtml(st.class_name)}">정보 수정</button>
               <button class="btn btn-sm btn-outline" data-act="sa-delete-student" data-id="${st.id}" data-name="${escapeHtml(st.name)}">삭제</button>
             </div>
           </td>
@@ -6075,7 +6081,9 @@ function bindEvents() {
         case "admin-approve": adminSetStatus(el.dataset.id, "approved"); break;
         case "admin-reject": adminSetStatus(el.dataset.id, "rejected"); break;
         case "admin-reset-pw": adminResetPassword(el.dataset.id, el.dataset.name); break;
-        case "admin-change-semester": adminChangeSemester(el.dataset.id, el.dataset.name, el.dataset.year, el.dataset.semester); break;
+        case "admin-edit-student": adminEditStudentInfo(el.dataset.id, el.dataset.name, el.dataset.year, el.dataset.semester, el.dataset.class); break;
+        case "sa-edit-student": adminEditStudentInfo(el.dataset.id, el.dataset.name, el.dataset.year, el.dataset.semester, el.dataset.class); break;
+        case "switch-level": switchStudentLevel(); break;
         case "sa-tab": state.superAdmin.tab = el.dataset.tab; setState({}); renderSuperAdminBody(); break;
         case "sa-refresh": state.superAdmin.loaded = false; loadSuperAdmin(); break;
         case "sa-approve": saSetStatus(el.dataset.id, "approved"); break;
@@ -6133,6 +6141,28 @@ function pickStudentAccount(idx) {
   setState({ student, loginCandidates: [], view: student.status === "approved" ? "s_home" : "s_pending" });
 }
 
+// 로그아웃 없이 다른 단계 계정으로 전환. 같은 이름+비밀번호로 등록된
+// 다른 단계(예: 중급1↔중급2) 계정이 있으면 계정 선택 화면을 보여준다.
+async function switchStudentLevel() {
+  const s = state.student;
+  if (!s) return;
+  setState({ loading: true });
+  try {
+    const rows = await sb(`students?name=eq.${encodeURIComponent(s.name)}&password_hash=eq.${encodeURIComponent(s.password_hash)}&select=*`);
+    const others = (rows || []).filter(r => r.id !== s.id);
+    if (!others.length) { setState({ loading: false }); alert("전환할 수 있는 다른 단계 계정이 없어요."); return; }
+    if (others.length === 1) {
+      const student = others[0];
+      saveSession(student.id);
+      setState({ loading: false, student, view: student.status === "approved" ? "s_home" : "s_pending" });
+      return;
+    }
+    setState({ loading: false, loginCandidates: others, view: "s_login_pick" });
+  } catch (e) {
+    setState({ loading: false, error: e.message });
+  }
+}
+
 async function onStudentRegister() {
   const name = document.getElementById("r-name").value.trim();
   const phone = document.getElementById("r-phone").value.trim();
@@ -6145,13 +6175,26 @@ async function onStudentRegister() {
   if (!/^01[0-9]-?\d{3,4}-?\d{4}$/.test(phone)) { setState({ error: "전화번호를 정확히 입력해주세요. (예: 010-1234-5678)" }); return; }
   if (!teacher_id) { setState({ error: "담당 선생님을 선택해주세요." }); return; }
 
-  // 동명이인 확인: 같은 이름으로 이미 등록된 학생이 있으면 한 번 경고하고,
-  // 사용자가 내용을 확인한 뒤 다시 제출하면(dupConfirmedName === name) 그대로 진행한다.
+  // 중복 가입 확인
+  // 1) 전화번호가 같고 단계(class_name)도 같으면 → 진짜 중복 가입(실수)이므로 완전 차단.
+  //    (같은 사람이 중급1/중급2처럼 다른 단계에 각각 가입하는 것은 정상 사용 방식이라 전화번호가 같아도 허용)
+  // 2) 전화번호는 다른데 이름만 같으면(동명이인 가능성) → 한 번 경고만 하고, 확인 후 다시 제출하면 진행.
+  setState({ loading: true, error: "" });
+  try {
+    const samePhoneSameClass = await sb(`students?phone=eq.${encodeURIComponent(phone)}&class_name=eq.${encodeURIComponent(class_name)}&select=id`);
+    if (samePhoneSameClass && samePhoneSameClass.length) {
+      setState({
+        loading: false,
+        error: `이미 이 전화번호로 '${classLabel(class_name)}'에 가입된 계정이 있어요. 로그인 화면에서 로그인해주세요. 정보가 다르다면 담당 선생님께 문의해주세요.`
+      });
+      return;
+    }
+  } catch (e) { /* 확인 실패해도 가입 자체는 막지 않음 */ }
+
   if (state.dupConfirmedName !== name) {
-    setState({ loading: true, error: "" });
     try {
-      const existing = await sb(`students?name=eq.${encodeURIComponent(name)}&select=id`);
-      if (existing && existing.length) {
+      const existingName = await sb(`students?name=eq.${encodeURIComponent(name)}&phone=neq.${encodeURIComponent(phone)}&select=id`);
+      if (existingName && existingName.length) {
         setState({
           loading: false,
           dupConfirmedName: name,
@@ -6159,7 +6202,7 @@ async function onStudentRegister() {
         });
         return;
       }
-    } catch (e) { /* 중복 확인 실패해도 가입 자체는 막지 않음 */ }
+    } catch (e) { /* 확인 실패해도 가입 자체는 막지 않음 */ }
   }
 
   setState({ loading: true, error: "" });
@@ -6300,21 +6343,42 @@ async function adminResetPassword(id, name) {
   } catch (e) { alert("처리 중 오류: " + e.message); }
 }
 
-async function adminChangeSemester(id, name, curYear, curSemester) {
-  // 학기가 바뀌었는데도 이전 학기 값으로 남아있는 학생을 현재 학기로 옮길 때 사용
-  // (순위표는 나와 연도·학기가 정확히 같은 학생만 모아서 보여주므로, 값이 다르면 순위표에 나타나지 않음)
+async function adminEditStudentInfo(id, name, curYear, curSemester, curClass) {
+  // 학생의 연도·학기·단계를 한 번에 수정. 선생님 화면(본인 학생만 보임)과
+  // 전체 관리자 화면(모든 학생) 양쪽에서 공용으로 사용.
   const yearInput = prompt(`${name} 학생의 연도를 입력하세요 (현재: ${curYear}년):`, curYear);
   if (yearInput === null) return;
   const year = Number(yearInput);
   if (!Number.isInteger(year) || year < 2000 || year > 2100) { alert("연도를 올바르게 입력해주세요. (예: 2026)"); return; }
+
   const semInput = prompt(`${name} 학생의 학기를 입력하세요 (1, 2, 3 중 하나, 현재: ${curSemester}학기):`, curSemester);
   if (semInput === null) return;
   const semester = Number(semInput);
   if (![1, 2, 3].includes(semester)) { alert("학기는 1, 2, 3 중 하나여야 해요."); return; }
+
+  const classListText = CLASS_OPTIONS.map((c, i) => `${i + 1}. ${c.label}`).join("\n");
+  const curClassIdx = CLASS_OPTIONS.findIndex(c => c.value === curClass);
+  const classInput = prompt(`${name} 학생의 단계를 번호로 선택하세요 (현재: ${classLabel(curClass)})\n${classListText}`, String(curClassIdx >= 0 ? curClassIdx + 1 : 1));
+  if (classInput === null) return;
+  const classIdx = Number(classInput) - 1;
+  if (!CLASS_OPTIONS[classIdx]) { alert("올바른 번호를 입력해주세요."); return; }
+  const class_name = CLASS_OPTIONS[classIdx].value;
+
+  const classChanged = class_name !== curClass;
+  if (classChanged && !confirm(`단계를 ${classLabel(curClass)} → ${classLabel(class_name)}(으)로 바꾸면 ${classLabel(curClass)}의 오답노트가 삭제돼요. 계속할까요?`)) return;
+
   try {
-    await sb(`students?id=eq.${id}`, { method: "PATCH", body: { year, semester } });
-    alert(`${name} 학생을 ${year}년 ${semester}학기로 옮겼어요.`);
-    loadAdminStudents();
+    await sb(`students?id=eq.${id}`, { method: "PATCH", body: { year, semester, class_name } });
+    if (classChanged) {
+      const oldLevelKey = CLASS_LEVEL_KEY[curClass];
+      if (oldLevelKey) {
+        try { await sb(`wrong_questions?student_id=eq.${id}&level_key=eq.${oldLevelKey}`, { method: "DELETE" }); }
+        catch (e) { /* 오답노트 삭제 실패해도 정보 수정 자체는 이미 반영됨 */ }
+      }
+    }
+    alert(`${name} 학생 정보를 ${year}년 ${semester}학기 · ${classLabel(class_name)}(으)로 수정했어요.`);
+    if (document.getElementById("super-admin-body")) { state.superAdmin.loaded = false; loadSuperAdmin(); }
+    else if (document.getElementById("admin-body")) { loadAdminStudents(); }
   } catch (e) { alert("처리 중 오류: " + e.message); }
 }
 
